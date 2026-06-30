@@ -18,17 +18,43 @@ runs only cheap, date-bounded aggregations over the small rollup collections
 of JSON. The page loads instantly and can be hosted on any static host.
 
 ## What it shows
-- **KPIs:** devices reported yesterday, data-loggers online today (live), energy
-  yesterday, month-to-date, open alarms, active plants.
+- **KPIs:** devices reported yesterday, data-loggers online today (live),
+  open alarms, offline devices (silent >7d), forwarding-queue depth, energy
+  yesterday, month-to-date, active plants.
 - **Generation & active-device trend** (90 days).
 - **Fleet reporting donut** (reporting in last 7 days vs. silent).
+- **Connectivity mix** — gateways by radio type (WiFi vs cellular/GSM).
+- **New devices onboarded / week** (8 weeks).
 - **Top plants** by 30-day generation.
 - **Alarms per day** (30 days) + **top alarm types** (7 days).
+- **Data quality** — corrupt `generation` values excluded + worst-offending
+  devices (see note below).
+- **Fleet & pipeline health** — silent devices (>7d / >30d), forwarding-queue
+  backlog, throttled devices.
 - **Plant map** (~13.7k geo-located plants, clustered).
 
 > Timestamps are IST (UTC+5:30). The current day is in progress, so "today"
 > figures are partial and live; the trend charts exclude the in-progress day so
 > the line doesn't dip misleadingly. Yesterday is the reliable headline number.
+
+### Data-quality handling
+A small number of devices write garbage into `dailygenerations.generation`
+(float-overflow sentinels ~`3.4e38 = 2¹²⁸`, plus negatives). Because the charts
+SUM per day, a single bad record can pin a whole day to 1e38. `build.py` excludes
+any value outside `[0, GEN_MAX]` (1 GWh/day) from every generation sum, and the
+Data-quality panel reports how many were dropped and which devices produced them.
+The raw DB is still polluted at the source — see the cleanup tool below.
+
+## Tools
+`tools/cleanup_bad_generation.py` — removes the corrupt generation values from
+your **read-write primary cluster** (the Online Archive used by the dashboard is
+read-only and can't delete). Dry-run by default; writes a JSON backup before any
+change; `--strategy zero` (keep record, null the value) or `--strategy delete`.
+```bash
+export MONGODB_RW_URI='mongodb+srv://USER:PASS@your-primary.mongodb.net'
+python tools/cleanup_bad_generation.py            # dry run — shows what it would do
+python tools/cleanup_bad_generation.py --apply    # zero out the bad values (backup first)
+```
 
 ## Run it
 

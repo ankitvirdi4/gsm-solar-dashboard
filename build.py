@@ -213,13 +213,57 @@ def main():
         return [{"name": names.get(r["_id"], str(r["_id"])[-6:]), "gen": round(r["gen"], 1)} for r in rows]
     top_plants = section("top plants (30d)", _top_plants, []) or []
 
-    # ---- data quality: corrupt generation records excluded ---------------
+    # ---- data quality: corrupt generation records + worst offenders ------
     def _dq():
-        bad = db.dailygenerations.count_documents(
-            {"$or": [{"generation": {"$gt": GEN_MAX}}, {"generation": {"$lt": 0}}]},
-            maxTimeMS=60000)
-        return {"excluded_bad_generation": bad, "gen_cap_kwh": GEN_MAX}
+        over = db.dailygenerations.count_documents({"generation": {"$gt": GEN_MAX}}, maxTimeMS=60000)
+        neg = db.dailygenerations.count_documents({"generation": {"$lt": 0}}, maxTimeMS=60000)
+        rows = list(db.dailygenerations.aggregate([
+            {"$match": {"$or": [{"generation": {"$gt": GEN_MAX}}, {"generation": {"$lt": 0}}]}},
+            {"$group": {"_id": "$slaveDeviceId", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}}, {"$limit": 6}], allowDiskUse=True))
+        ids = [r["_id"] for r in rows]
+        names = {s["_id"]: s.get("nickName") for s in db.slaves.find({"_id": {"$in": ids}}, {"nickName": 1})}
+        offenders = [{"device": names.get(r["_id"]) or str(r["_id"])[-6:], "n": r["n"]} for r in rows]
+        return {"excluded_bad_generation": over + neg, "overflow": over, "negative": neg,
+                "gen_cap_kwh": GEN_MAX, "offenders": offenders}
     dq = section("data quality", _dq, {}) or {}
+
+    # ---- offline / stale devices (reported before, silent now) -----------
+    def _offline():
+        r = list(db.dailygenerations.aggregate([
+            {"$group": {"_id": "$slaveDeviceId", "last": {"$max": "$date"}}},
+            {"$group": {"_id": None, "total": {"$sum": 1},
+                        "silent7": {"$sum": {"$cond": [{"$lt": ["$last", cut7]}, 1, 0]}},
+                        "silent30": {"$sum": {"$cond": [{"$lt": ["$last", cut30]}, 1, 0]}}}}],
+            allowDiskUse=True, maxTimeMS=120000))
+        o = r[0] if r else {}
+        return {"ever_reported": o.get("total", 0), "silent_7d": o.get("silent7", 0),
+                "silent_30d": o.get("silent30", 0)}
+    offline = section("offline devices", _offline, {}) or {}
+
+    # ---- device connectivity mix (gateway radio type) --------------------
+    def _mix():
+        rows = db.gateways.aggregate([{"$group": {"_id": "$deviceType", "n": {"$sum": 1}}},
+                                      {"$sort": {"n": -1}}])
+        return {(r["_id"] or "unknown"): r["n"] for r in rows}
+    mix = section("device mix", _mix, {}) or {}
+
+    # ---- pipeline / ingestion health -------------------------------------
+    def _pipeline():
+        return {"forwarding_queue": db.forwardingqueues.estimated_document_count(),
+                "throttled_devices": db.throttledTelemetry.estimated_document_count()}
+    pipeline = section("pipeline health", _pipeline, {}) or {}
+
+    # ---- onboarding: new devices registered per week (8 weeks) -----------
+    def _growth():
+        cut = today0 - timedelta(days=56)
+        rows = db.slaves.aggregate([
+            {"$match": {"createdAt": {"$gte": cut}}},
+            {"$group": {"_id": {"$dateToString": {"format": "%Y-W%U", "date": "$createdAt", "timezone": "+05:30"}},
+                        "n": {"$sum": 1}}},
+            {"$sort": {"_id": 1}}], allowDiskUse=True)
+        return [{"week": r["_id"], "n": r["n"]} for r in rows]
+    growth = section("device growth (8wk)", _growth, []) or []
 
     # ---- geo (plants with valid coordinates) -----------------------------
     def _geo():
@@ -252,6 +296,10 @@ def main():
         "daily": daily,
         "top_plants": top_plants,
         "data_quality": dq,
+        "offline": offline,
+        "device_mix": mix,
+        "pipeline": pipeline,
+        "growth": growth,
         "geo_count": len(geo),
     }
     print("\nWriting snapshot files:")

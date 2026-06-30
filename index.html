@@ -48,6 +48,13 @@
   .bar-cell{position:relative}
   .bar-cell .fill{position:absolute;left:0;top:0;bottom:0;background:rgba(245,166,35,.16);border-radius:3px}
   .bar-cell span{position:relative}
+  .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .tile{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .tile .v{font-size:23px;font-weight:700;line-height:1.1}
+  .tile .l{color:var(--muted);font-size:12px;margin-top:4px}
+  .dq-row{display:flex;gap:18px;margin-bottom:12px}
+  .dq-row .n{font-size:23px;font-weight:700} .dq-row .n.bad{color:var(--red)} .dq-row .n.amber{color:var(--amber)}
+  .dq-row .l{color:var(--muted);font-size:12px}
   footer{color:var(--muted);font-size:12px;padding:18px 26px;border-top:1px solid var(--line);margin-top:8px}
   .err{color:var(--red)}
   .leaflet-popup-content{font-size:13px}
@@ -75,6 +82,18 @@
       <canvas id="donut" height="170"></canvas>
     </div>
 
+    <div class="panel col-4">
+      <h2>Connectivity mix</h2>
+      <p class="hint">Gateways by radio type (WiFi vs cellular/GSM).</p>
+      <canvas id="mix" height="170"></canvas>
+    </div>
+
+    <div class="panel col-8">
+      <h2>New devices onboarded / week</h2>
+      <p class="hint">Slave devices registered per week — last 8 weeks.</p>
+      <canvas id="growth" height="120"></canvas>
+    </div>
+
     <div class="panel col-6">
       <h2>Top plants by generation</h2>
       <p class="hint">Total kWh, last 30 days.</p>
@@ -85,6 +104,18 @@
       <h2>Alarms raised per day</h2>
       <p class="hint">New alarm events — last 30 days. Today excluded (partial).</p>
       <canvas id="alarms" height="150"></canvas>
+    </div>
+
+    <div class="panel col-6">
+      <h2>Data quality — corrupt generation</h2>
+      <p class="hint">Implausible values excluded from all sums, and the devices producing them.</p>
+      <div id="dq"></div>
+    </div>
+
+    <div class="panel col-6">
+      <h2>Fleet &amp; pipeline health</h2>
+      <p class="hint">Silent devices and ingestion backlog — operational signals.</p>
+      <div id="health" class="tiles"></div>
     </div>
 
     <div class="panel col-8">
@@ -133,6 +164,7 @@ async function load(){
     '<span class="err">Could not load data/data.json — run build.py first.</span>'; return; }
 
   const reg=d.registered||{}, c=d.connectivity||{}, g=d.generation||{}, dq=d.data_quality||{};
+  const off=d.offline||{}, pl=d.pipeline||{}, mix=d.device_mix||{}, growth=d.growth||[];
   document.getElementById('updated').innerHTML =
     `updated <b>${d.generated_at_ist||''}</b> · refreshes hourly`;
 
@@ -145,6 +177,9 @@ async function load(){
     kpiCard('Generation yesterday', fmtEnergy(g.yesterday_kwh), {t:'across the fleet'}, ''),
     kpiCard('Month to date', fmtEnergy(g.month_kwh), {t:'energy generated'}, ''),
     kpiCard('Open alarms', fmtInt(d.alarms_open), {t:'unacknowledged'}, d.alarms_open>0?'bad':'ok'),
+    kpiCard('Offline devices', fmtInt(off.silent_7d),
+            {t:`silent >7d · of ${fmtInt(off.ever_reported)} ever-active`}, 'bad'),
+    kpiCard('Forwarding queue', fmtInt(pl.forwarding_queue), {t:'records pending forward'}, 'accent'),
     kpiCard('Active plants yesterday', fmtInt((d.daily&&d.daily.length?prevDay(d).plants:null)),
             {t:`of ${fmtInt(reg.plants)} registered`}, ''),
   ];
@@ -207,6 +242,42 @@ async function load(){
     `<tr><th>Type</th><th style="text-align:right">Count</th></tr>` +
     ta.map(a=>`<tr><td class="bar-cell"><span class="fill" style="width:${100*a.count/maxA}%"></span>
       <span>${esc(a.type)}</span></td><td class="num">${fmtInt(a.count)}</td></tr>`).join('');
+
+  // ---- connectivity mix (wifi vs gsm) ----
+  const mixL=Object.keys(mix), mixV=Object.values(mix);
+  new Chart(document.getElementById('mix'),{type:'doughnut',
+    data:{labels:mixL.map(s=>s.toUpperCase()),
+      datasets:[{data:mixV,backgroundColor:[C.blue,C.accent,'#30363d'],borderWidth:0}]},
+    options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
+      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)}`}}}}});
+
+  // ---- device onboarding per week ----
+  new Chart(document.getElementById('growth'),{type:'bar',
+    data:{labels:growth.map(x=>x.week),
+      datasets:[{label:'New devices',data:growth.map(x=>x.n),
+        backgroundColor:'rgba(63,185,80,.55)',borderColor:C.green,borderWidth:0}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{maxRotation:0}},y:{grid:{color:C.grid}}}}});
+
+  // ---- data quality ----
+  const offs=dq.offenders||[];
+  document.getElementById('dq').innerHTML =
+    `<div class="dq-row">
+       <div><div class="n bad">${fmtInt(dq.excluded_bad_generation)}</div><div class="l">records excluded</div></div>
+       <div><div class="n amber">${fmtInt(dq.overflow)}</div><div class="l">overflow (2¹²⁸)</div></div>
+       <div><div class="n amber">${fmtInt(dq.negative)}</div><div class="l">negative</div></div>
+     </div>
+     <table><tr><th>Worst-offending device</th><th style="text-align:right">bad days</th></tr>`+
+     offs.map(o=>`<tr><td>${esc(o.device)}</td><td class="num">${fmtInt(o.n)}</td></tr>`).join('')+
+     `</table>`;
+
+  // ---- fleet & pipeline health tiles ----
+  document.getElementById('health').innerHTML = [
+    ['Silent &gt;7 days', fmtInt(off.silent_7d), 'var(--red)'],
+    ['Silent &gt;30 days', fmtInt(off.silent_30d), ''],
+    ['Forwarding queue', fmtInt(pl.forwarding_queue), 'var(--accent)'],
+    ['Throttled devices', fmtInt(pl.throttled_devices), ''],
+  ].map(([l,v,col])=>`<div class="tile"><div class="v" style="${col?'color:'+col:''}">${v}</div><div class="l">${l}</div></div>`).join('');
 
   document.getElementById('footer').innerHTML =
     `Source: Atlas Online Archive · ${fmtInt(reg.gateways)} gateway MACs · `+
