@@ -1,0 +1,58 @@
+name: Refresh & deploy dashboard
+
+# Hourly: rebuild the data snapshot from the Atlas Online Archive and deploy the
+# static dashboard to Cloudflare Pages. Access is gated by Cloudflare Access
+# (team-only login) — configured once in the Cloudflare dashboard, see README.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   MONGODB_URI            — the Atlas connection string (DB credential)
+#   CLOUDFLARE_API_TOKEN   — token with "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  — your Cloudflare account ID
+
+on:
+  schedule:
+    - cron: '0 * * * *'      # top of every hour (UTC)
+  workflow_dispatch: {}        # manual "Run workflow" button
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: pip install pymongo
+
+      - name: Build data snapshot
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          if [ -z "$MONGODB_URI" ]; then
+            echo "::error::MONGODB_URI secret is not set"; exit 1
+          fi
+          python build.py
+
+      - name: Assemble static site (only what should be published)
+        run: |
+          mkdir -p dist/data
+          cp index.html dist/
+          cp data/data.json data/geo.json dist/data/
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=gsm-solar-dashboard --branch=main

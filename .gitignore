@@ -1,0 +1,10 @@
+# Secrets — never commit
+.secret.env
+*.env
+!.*.example
+
+# Logs / caches
+build.log
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GSM Solar — Fleet Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<style>
+  :root{
+    --bg:#0d1117; --card:#161b22; --card2:#1c2330; --line:#262d38;
+    --txt:#e6edf3; --muted:#8b949e; --accent:#f5a623; --green:#3fb950;
+    --blue:#58a6ff; --red:#f85149; --amber:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:20px 26px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;}
+  header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px}
+  header h1 .sun{color:var(--accent)}
+  .updated{color:var(--muted);font-size:13px}
+  .updated b{color:var(--green)}
+  main{padding:22px 26px;max-width:1400px;margin:0 auto}
+  .grid{display:grid;gap:16px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:8px}
+  .kpi{background:linear-gradient(160deg,var(--card2),var(--card));border:1px solid var(--line);
+    border-radius:12px;padding:16px 18px}
+  .kpi .label{color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.5px}
+  .kpi .val{font-size:27px;font-weight:700;margin-top:7px;line-height:1.1}
+  .kpi .sub{color:var(--muted);font-size:12.5px;margin-top:5px}
+  .kpi .sub.partial{color:var(--amber)}
+  .kpi .accent{color:var(--accent)} .kpi .ok{color:var(--green)} .kpi .bad{color:var(--red)}
+  .panels{grid-template-columns:repeat(12,1fr);margin-top:16px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-width:0}
+  .panel h2{font-size:14px;margin:0 0 4px;font-weight:600}
+  .panel .hint{color:var(--muted);font-size:12px;margin:0 0 12px}
+  .col-8{grid-column:span 8} .col-6{grid-column:span 6}
+  .col-4{grid-column:span 4} .col-12{grid-column:span 12}
+  @media(max-width:980px){.col-8,.col-6,.col-4,.col-12{grid-column:span 12}}
+  canvas{max-width:100%}
+  #map{height:420px;border-radius:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.4px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar-cell{position:relative}
+  .bar-cell .fill{position:absolute;left:0;top:0;bottom:0;background:rgba(245,166,35,.16);border-radius:3px}
+  .bar-cell span{position:relative}
+  footer{color:var(--muted);font-size:12px;padding:18px 26px;border-top:1px solid var(--line);margin-top:8px}
+  .err{color:var(--red)}
+  .leaflet-popup-content{font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="sun">☀</span> GSM Solar — Fleet Dashboard</h1>
+  <span class="updated" id="updated">loading…</span>
+</header>
+
+<main>
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="grid panels">
+    <div class="panel col-8">
+      <h2>Generation &amp; active devices</h2>
+      <p class="hint">Daily energy (kWh) and number of inverter devices reporting — last 90 days. Today excluded (day in progress).</p>
+      <canvas id="trend" height="120"></canvas>
+    </div>
+
+    <div class="panel col-4">
+      <h2>Fleet reporting (7 days)</h2>
+      <p class="hint">Devices that sent data in the last week vs. registered.</p>
+      <canvas id="donut" height="170"></canvas>
+    </div>
+
+    <div class="panel col-6">
+      <h2>Top plants by generation</h2>
+      <p class="hint">Total kWh, last 30 days.</p>
+      <table id="topPlants"><tbody></tbody></table>
+    </div>
+
+    <div class="panel col-6">
+      <h2>Alarms raised per day</h2>
+      <p class="hint">New alarm events — last 30 days. Today excluded (partial).</p>
+      <canvas id="alarms" height="150"></canvas>
+    </div>
+
+    <div class="panel col-8">
+      <h2>Plant locations</h2>
+      <p class="hint" id="mapHint">Plants with valid coordinates.</p>
+      <div id="map"></div>
+    </div>
+
+    <div class="panel col-4">
+      <h2>Top alarm types (7 days)</h2>
+      <p class="hint">Most frequent fault parameters.</p>
+      <table id="topAlarms"><tbody></tbody></table>
+    </div>
+  </div>
+</main>
+
+<footer id="footer"></footer>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const C = {txt:'#e6edf3',muted:'#8b949e',accent:'#f5a623',green:'#3fb950',blue:'#58a6ff',red:'#f85149',grid:'#262d38'};
+Chart.defaults.color = C.muted;
+Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
+Chart.defaults.borderColor = C.grid;
+
+const fmtInt = n => (n==null?'—':n.toLocaleString('en-IN'));
+function fmtEnergy(kwh){
+  if(kwh==null) return '—';
+  if(kwh>=1e6) return (kwh/1e6).toFixed(2)+' GWh';
+  if(kwh>=1e3) return (kwh/1e3).toFixed(1)+' MWh';
+  return kwh.toFixed(0)+' kWh';
+}
+const pct = (a,b)=> b?Math.round(100*a/b)+'%':'—';
+
+function kpiCard(label,val,sub,cls){
+  return `<div class="kpi"><div class="label">${label}</div>
+    <div class="val ${cls||''}">${val}</div><div class="sub ${sub&&sub.p?'partial':''}">${sub?sub.t:''}</div></div>`;
+}
+
+async function load(){
+  let d;
+  try{ d = await (await fetch('data/data.json?_='+Date.now())).json(); }
+  catch(e){ document.getElementById('updated').innerHTML =
+    '<span class="err">Could not load data/data.json — run build.py first.</span>'; return; }
+
+  const reg=d.registered||{}, c=d.connectivity||{}, g=d.generation||{};
+  document.getElementById('updated').innerHTML =
+    `updated <b>${d.generated_at_ist||''}</b> · refreshes hourly`;
+
+  // ---- KPI cards ----
+  const cards = [
+    kpiCard('Devices reported yesterday', fmtInt(c.active_yesterday),
+            {t:`of ${fmtInt(reg.slaves)} registered · ${pct(c.active_yesterday,reg.slaves)} online`}, 'ok'),
+    kpiCard('Data-loggers online today', fmtInt(c.gw_today),
+            {t:'live · day in progress', p:true}, 'accent'),
+    kpiCard('Generation yesterday', fmtEnergy(g.yesterday_kwh), {t:'across the fleet'}, ''),
+    kpiCard('Month to date', fmtEnergy(g.month_kwh), {t:'energy generated'}, ''),
+    kpiCard('Open alarms', fmtInt(d.alarms_open), {t:'unacknowledged'}, d.alarms_open>0?'bad':'ok'),
+    kpiCard('Active plants yesterday', fmtInt((d.daily&&d.daily.length?prevDay(d).plants:null)),
+            {t:`of ${fmtInt(reg.plants)} registered`}, ''),
+  ];
+  document.getElementById('kpis').innerHTML = cards.join('');
+
+  // ---- trend (exclude today/partial last point) ----
+  const today = (d.generated_at_ist||'').slice(0,10);
+  const trend = (d.daily||[]).filter(x=>x.date!==today);
+  new Chart(document.getElementById('trend'), {
+    data:{ labels:trend.map(x=>x.date),
+      datasets:[
+        {type:'line',label:'Generation (kWh)',yAxisID:'y',data:trend.map(x=>x.gen),
+          borderColor:C.accent,backgroundColor:'rgba(245,166,35,.12)',fill:true,
+          tension:.3,pointRadius:0,borderWidth:2},
+        {type:'line',label:'Devices reporting',yAxisID:'y1',data:trend.map(x=>x.devices),
+          borderColor:C.blue,tension:.3,pointRadius:0,borderWidth:1.5}
+      ]},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{boxWidth:12}}},
+      scales:{
+        x:{ticks:{maxTicksLimit:10,maxRotation:0},grid:{display:false}},
+        y:{position:'left',title:{display:true,text:'kWh'},grid:{color:C.grid}},
+        y1:{position:'right',title:{display:true,text:'devices'},grid:{display:false},
+            suggestedMin:0}
+      }}
+  });
+
+  // ---- donut: reporting vs silent (7d) ----
+  const online = c.active_7d||0, total = reg.slaves||online, silent = Math.max(total-online,0);
+  new Chart(document.getElementById('donut'),{
+    type:'doughnut',
+    data:{labels:['Reporting (7d)','Silent / offline'],
+      datasets:[{data:[online,silent],backgroundColor:[C.green,'#30363d'],borderWidth:0}]},
+    options:{cutout:'68%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
+      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)} (${pct(ctx.raw,total)})`}}}}
+  });
+
+  // ---- top plants table (with inline bars) ----
+  const tp=d.top_plants||[]; const maxG=Math.max(1,...tp.map(p=>p.gen));
+  document.querySelector('#topPlants tbody').innerHTML =
+    `<tr><th>Plant</th><th style="text-align:right">kWh (30d)</th></tr>` +
+    tp.map(p=>`<tr><td class="bar-cell"><span class="fill" style="width:${100*p.gen/maxG}%"></span>
+      <span>${esc(p.name)}</span></td><td class="num">${fmtInt(Math.round(p.gen))}</td></tr>`).join('');
+
+  // ---- alarms per day (exclude partial today) ----
+  const ad=(d.alarms_daily||[]).filter(x=>x.date!==today);
+  new Chart(document.getElementById('alarms'),{
+    type:'bar',
+    data:{labels:ad.map(x=>x.date),
+      datasets:[{label:'Alarms',data:ad.map(x=>x.count),backgroundColor:'rgba(248,81,73,.55)',
+        borderColor:C.red,borderWidth:0}]},
+    options:{plugins:{legend:{display:false}},
+      scales:{x:{ticks:{maxTicksLimit:8,maxRotation:0},grid:{display:false}},
+              y:{grid:{color:C.grid}}}}
+  });
+
+  // ---- top alarm types ----
+  const ta=d.alarms_top||[]; const maxA=Math.max(1,...ta.map(a=>a.count));
+  document.querySelector('#topAlarms tbody').innerHTML =
+    `<tr><th>Type</th><th style="text-align:right">Count</th></tr>` +
+    ta.map(a=>`<tr><td class="bar-cell"><span class="fill" style="width:${100*a.count/maxA}%"></span>
+      <span>${esc(a.type)}</span></td><td class="num">${fmtInt(a.count)}</td></tr>`).join('');
+
+  document.getElementById('footer').innerHTML =
+    `Source: Atlas Online Archive · ${fmtInt(reg.gateways)} gateway MACs · `+
+    `${fmtInt(reg.gateways_assigned)} with assigned slaves · snapshot pre-aggregated by build.py (no live DB load).`;
+
+  loadMap(today,total);
+}
+
+function prevDay(d){
+  const today=(d.generated_at_ist||'').slice(0,10);
+  const past=(d.daily||[]).filter(x=>x.date!==today);
+  return past.length?past[past.length-1]:{plants:null};
+}
+function esc(s){return (s||'').replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
+
+async function loadMap(){
+  let geo;
+  try{ geo = await (await fetch('data/geo.json?_='+Date.now())).json(); }
+  catch(e){ document.getElementById('mapHint').innerHTML='<span class="err">geo.json not found.</span>'; return; }
+  const pts=geo.points||[];
+  document.getElementById('mapHint').textContent = `${fmtInt(pts.length)} plants with valid coordinates.`;
+  const map=L.map('map',{scrollWheelZoom:false}).setView([22.0,79.0],5);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    {attribution:'© OpenStreetMap, © CARTO',maxZoom:18}).addTo(map);
+  const cluster=L.markerClusterGroup({chunkedLoading:true,maxClusterRadius:50});
+  for(const [la,lo,name] of pts){
+    cluster.addLayer(L.circleMarker([la,lo],{radius:5,color:C.accent,weight:1,
+      fillColor:C.accent,fillOpacity:.7}).bindPopup(esc(name)||'Plant'));
+  }
+  map.addLayer(cluster);
+}
+
+load();
+</script>
+</body>
+</html>
