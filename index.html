@@ -132,7 +132,7 @@ async function load(){
   catch(e){ document.getElementById('updated').innerHTML =
     '<span class="err">Could not load data/data.json — run build.py first.</span>'; return; }
 
-  const reg=d.registered||{}, c=d.connectivity||{}, g=d.generation||{};
+  const reg=d.registered||{}, c=d.connectivity||{}, g=d.generation||{}, dq=d.data_quality||{};
   document.getElementById('updated').innerHTML =
     `updated <b>${d.generated_at_ist||''}</b> · refreshes hourly`;
 
@@ -210,7 +210,10 @@ async function load(){
 
   document.getElementById('footer').innerHTML =
     `Source: Atlas Online Archive · ${fmtInt(reg.gateways)} gateway MACs · `+
-    `${fmtInt(reg.gateways_assigned)} with assigned slaves · snapshot pre-aggregated by build.py (no live DB load).`;
+    `${fmtInt(reg.gateways_assigned)} with assigned slaves · `+
+    (dq.excluded_bad_generation!=null
+      ? `${fmtInt(dq.excluded_bad_generation)} corrupt generation records excluded · ` : '')+
+    `snapshot pre-aggregated by build.py (no live DB load).`;
 
   loadMap(today,total);
 }

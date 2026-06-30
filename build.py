@@ -51,6 +51,13 @@ URI = _load_uri()
 OUT_DIR = os.path.join(HERE, "data")
 IST = timezone(timedelta(hours=5, minutes=30))
 
+# Data-quality guard: a small number of devices write garbage into `generation`
+# (float-overflow sentinels ~3.4e38 = 2**128, and negative values). A real
+# inverter never exceeds a few MWh/day, so anything outside [0, GEN_MAX] is junk
+# and is excluded from every generation SUM so it can't poison the totals.
+GEN_MAX = 1_000_000  # kWh/day per device (1 GWh — far above any real device)
+VALID_GEN = {"generation": {"$gte": 0, "$lte": GEN_MAX}}
+
 
 def ist_midnight_utc(d: datetime) -> datetime:
     """Start of the IST calendar day containing `d`, expressed in UTC."""
@@ -133,7 +140,8 @@ def main():
     # ---- generation totals ----------------------------------------------
     def _gen():
         def gsum(lo, hi=None):
-            m = {"date": {"$gte": lo}} if hi is None else {"date": {"$gte": lo, "$lt": hi}}
+            m = dict(VALID_GEN)
+            m["date"] = {"$gte": lo} if hi is None else {"$gte": lo, "$lt": hi}
             p = [{"$match": m}, {"$group": {"_id": None, "g": {"$sum": "$generation"}}}]
             r = list(db.dailygenerations.aggregate(p, allowDiskUse=True))
             return round(r[0]["g"], 1) if r else 0
@@ -172,11 +180,15 @@ def main():
 
     # ---- daily generation + active-device trend (90 days) ----------------
     def _daily():
+        # count ALL reporting devices, but only sum generation values in range
+        valid_gen = {"$cond": [
+            {"$and": [{"$gte": ["$generation", 0]}, {"$lte": ["$generation", GEN_MAX]}]},
+            "$generation", 0]}
         p = [
             {"$match": {"date": {"$gte": cut90}}},
             {"$group": {
                 "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$date", "timezone": "+05:30"}},
-                "gen": {"$sum": "$generation"},
+                "gen": {"$sum": valid_gen},
                 "devices": {"$sum": 1},                 # 1 doc per device per day
                 "plants": {"$addToSet": "$plantId"},
             }},
@@ -190,7 +202,7 @@ def main():
     # ---- top plants by generation (30 days) ------------------------------
     def _top_plants():
         p = [
-            {"$match": {"date": {"$gte": cut30}}},
+            {"$match": {"date": {"$gte": cut30}, **VALID_GEN}},
             {"$group": {"_id": "$plantId", "gen": {"$sum": "$generation"}}},
             {"$sort": {"gen": -1}}, {"$limit": 12},
         ]
@@ -200,6 +212,14 @@ def main():
                  for d in db.plants.find({"_id": {"$in": ids}}, {"plantName": 1})}
         return [{"name": names.get(r["_id"], str(r["_id"])[-6:]), "gen": round(r["gen"], 1)} for r in rows]
     top_plants = section("top plants (30d)", _top_plants, []) or []
+
+    # ---- data quality: corrupt generation records excluded ---------------
+    def _dq():
+        bad = db.dailygenerations.count_documents(
+            {"$or": [{"generation": {"$gt": GEN_MAX}}, {"generation": {"$lt": 0}}]},
+            maxTimeMS=60000)
+        return {"excluded_bad_generation": bad, "gen_cap_kwh": GEN_MAX}
+    dq = section("data quality", _dq, {}) or {}
 
     # ---- geo (plants with valid coordinates) -----------------------------
     def _geo():
@@ -231,6 +251,7 @@ def main():
         "alarms_daily": alarms_daily,
         "daily": daily,
         "top_plants": top_plants,
+        "data_quality": dq,
         "geo_count": len(geo),
     }
     print("\nWriting snapshot files:")
