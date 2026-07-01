@@ -27,8 +27,10 @@ of JSON. The page loads instantly and can be hosted on any static host.
 - **Reporting consistency (7d)** — of the devices "active" this week, how many
   reported daily (6–7 days) vs. intermittently vs. *only once*. (Replaces the
   old binary "reporting vs silent" donut, which counted a single ping as active.)
-- **Connectivity mix** — *active* gateways (last 7d) by radio type; counts
-  reporting gateways, not the ~91K never-deployed registered MACs.
+- **Connectivity mix** — actively-reporting *devices* by radio type (WiFi vs
+  cellular/GSM), classified from actual generation data (each device's gateway
+  `deviceType`), with the registered installed-base shown alongside. NB: don't
+  use `gateways.updatedAt` for this — it bumps unreliably and undercounts WiFi.
 - **New devices onboarded / week** (8 weeks).
 - **Top plants** by 30-day generation.
 - **Alarms per day** (30 days) + **top alarm types** (7 days).

@@ -289,17 +289,21 @@ def main():
                 "silent_30d": o.get("silent30", 0)}
     offline = section("offline devices", _offline, {}) or {}
 
-    # ---- device connectivity mix (gateway radio type) --------------------
-    # Count ACTIVE gateways (contacted the server in the last 7 days), NOT all
-    # registered MACs — ~91K of the 104K MACs are never-deployed registrations
-    # (overwhelmingly WiFi), which would otherwise wildly skew the split.
-    def _mix():
-        rows = db.gateways.aggregate([
-            {"$match": {"updatedAt": {"$gte": cut7}}},
-            {"$group": {"_id": "$deviceType", "n": {"$sum": 1}}},
-            {"$sort": {"n": -1}}])
-        return {(r["_id"] or "unknown"): r["n"] for r in rows}
-    mix = section("device mix (active 7d)", _mix, {}) or {}
+    # ---- radio-type summary: registered vs actively-reporting devices ----
+    # gateways.updatedAt UNDERCOUNTS WiFi (it bumps unreliably), so classify by
+    # what actually reported: map each device's gateway -> radio type. Also count
+    # registered slaves per type so the (large) WiFi installed base is visible.
+    def _radio():
+        from collections import Counter
+        gwtype = {g["_id"]: (g.get("deviceType") or "null")
+                  for g in db.gateways.find({}, {"deviceType": 1})}
+        reg = Counter()
+        for s in db.slaves.find({}, {"gatewayId": 1}):
+            reg[gwtype.get(s.get("gatewayId"), "other")] += 1
+        return {t: {"registered": reg.get(t, 0),
+                    "active_7d": (by_type.get(t, {}) or {}).get("active_7d", 0)}
+                for t in ("wifi", "gsm")}
+    radio = section("radio-type summary", _radio, {}) or {}
 
     # ---- pipeline / ingestion health -------------------------------------
     def _pipeline():
@@ -351,7 +355,7 @@ def main():
         "data_quality": dq,
         "by_type": by_type,
         "offline": offline,
-        "device_mix": mix,
+        "radio": radio,
         "pipeline": pipeline,
         "growth": growth,
         "geo_count": len(geo),

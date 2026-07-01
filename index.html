@@ -93,7 +93,7 @@
 
     <div class="panel col-4">
       <h2>Connectivity mix</h2>
-      <p class="hint">Active gateways (last 7d) by radio type — WiFi vs cellular/GSM.</p>
+      <p class="hint" id="mixHint">Actively reporting devices by radio type (last 7 days).</p>
       <canvas id="mix" height="170"></canvas>
     </div>
 
@@ -173,7 +173,7 @@ async function load(){
     '<span class="err">Could not load data/data.json — run build.py first.</span>'; return; }
 
   const reg=d.registered||{}, c=d.connectivity||{}, g=d.generation||{}, dq=d.data_quality||{};
-  const off=d.offline||{}, pl=d.pipeline||{}, mix=d.device_mix||{}, growth=d.growth||[];
+  const off=d.offline||{}, pl=d.pipeline||{}, radio=d.radio||{}, growth=d.growth||[];
   document.getElementById('updated').innerHTML =
     `updated <b>${d.generated_at_ist||''}</b> · refreshes hourly`;
 
@@ -272,14 +272,17 @@ async function load(){
     ta.map(a=>`<tr><td class="bar-cell"><span class="fill" style="width:${100*a.count/maxA}%"></span>
       <span>${esc(a.type)}</span></td><td class="num">${fmtInt(a.count)}</td></tr>`).join('');
 
-  // ---- connectivity mix (wifi vs gsm) — color by label, not position ----
-  const mixL=Object.keys(mix), mixV=Object.values(mix);
-  const mixColor={wifi:C.blue, gsm:C.accent, unknown:'#30363d'};
+  // ---- connectivity mix: actively-reporting devices by radio type ----
+  const rW=radio.wifi||{}, rG=radio.gsm||{};
   new Chart(document.getElementById('mix'),{type:'doughnut',
-    data:{labels:mixL.map(s=>s.toUpperCase()),
-      datasets:[{data:mixV,backgroundColor:mixL.map(k=>mixColor[k]||'#30363d'),borderWidth:0}]},
+    data:{labels:['WiFi','GSM/cellular'],
+      datasets:[{data:[rW.active_7d||0, rG.active_7d||0],
+        backgroundColor:[C.blue,C.accent],borderWidth:0}]},
     options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
-      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)}`}}}}});
+      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)} active`}}}}});
+  document.getElementById('mixHint').innerHTML =
+    `Active this week: <b>WiFi ${fmtInt(rW.active_7d)}</b> · GSM ${fmtInt(rG.active_7d)} · `+
+    `registered: WiFi ${fmtInt(rW.registered)} / GSM ${fmtInt(rG.registered)}.`;
 
   // ---- device onboarding per week ----
   new Chart(document.getElementById('growth'),{type:'bar',
