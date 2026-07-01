@@ -84,7 +84,7 @@
 
     <div class="panel col-4">
       <h2>Connectivity mix</h2>
-      <p class="hint">Gateways by radio type (WiFi vs cellular/GSM).</p>
+      <p class="hint">Active gateways (last 7d) by radio type — WiFi vs cellular/GSM.</p>
       <canvas id="mix" height="170"></canvas>
     </div>
 
@@ -243,11 +243,12 @@ async function load(){
     ta.map(a=>`<tr><td class="bar-cell"><span class="fill" style="width:${100*a.count/maxA}%"></span>
       <span>${esc(a.type)}</span></td><td class="num">${fmtInt(a.count)}</td></tr>`).join('');
 
-  // ---- connectivity mix (wifi vs gsm) ----
+  // ---- connectivity mix (wifi vs gsm) — color by label, not position ----
   const mixL=Object.keys(mix), mixV=Object.values(mix);
+  const mixColor={wifi:C.blue, gsm:C.accent, unknown:'#30363d'};
   new Chart(document.getElementById('mix'),{type:'doughnut',
     data:{labels:mixL.map(s=>s.toUpperCase()),
-      datasets:[{data:mixV,backgroundColor:[C.blue,C.accent,'#30363d'],borderWidth:0}]},
+      datasets:[{data:mixV,backgroundColor:mixL.map(k=>mixColor[k]||'#30363d'),borderWidth:0}]},
     options:{cutout:'62%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
       tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)}`}}}}});
 

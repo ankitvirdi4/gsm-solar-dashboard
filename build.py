@@ -242,11 +242,16 @@ def main():
     offline = section("offline devices", _offline, {}) or {}
 
     # ---- device connectivity mix (gateway radio type) --------------------
+    # Count ACTIVE gateways (contacted the server in the last 7 days), NOT all
+    # registered MACs — ~91K of the 104K MACs are never-deployed registrations
+    # (overwhelmingly WiFi), which would otherwise wildly skew the split.
     def _mix():
-        rows = db.gateways.aggregate([{"$group": {"_id": "$deviceType", "n": {"$sum": 1}}},
-                                      {"$sort": {"n": -1}}])
+        rows = db.gateways.aggregate([
+            {"$match": {"updatedAt": {"$gte": cut7}}},
+            {"$group": {"_id": "$deviceType", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}}])
         return {(r["_id"] or "unknown"): r["n"] for r in rows}
-    mix = section("device mix", _mix, {}) or {}
+    mix = section("device mix (active 7d)", _mix, {}) or {}
 
     # ---- pipeline / ingestion health -------------------------------------
     def _pipeline():
