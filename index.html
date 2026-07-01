@@ -61,6 +61,14 @@
   .dq-row{display:flex;gap:18px;margin-bottom:12px}
   .dq-row .n{font-size:23px;font-weight:700} .dq-row .n.bad{color:var(--red)} .dq-row .n.amber{color:var(--amber)}
   .dq-row .l{color:var(--muted);font-size:12px}
+  .actrate{margin-top:14px}
+  .actrate .cap{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px}
+  .actrate .row{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:12.5px}
+  .actrate .row .lbl{width:40px;color:var(--txt)}
+  .actrate .track{flex:1;height:9px;background:#30363d;border-radius:5px;overflow:hidden}
+  .actrate .track .fill{height:100%;border-radius:5px}
+  .actrate .row .pv{width:64px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+  .actrate .row .pv b{color:var(--txt)}
   footer{color:var(--muted);font-size:12px;padding:18px 26px;border-top:1px solid var(--line);margin-top:8px}
   .err{color:var(--red)}
   .leaflet-popup-content{font-size:13px}
@@ -94,7 +102,8 @@
     <div class="panel col-4">
       <h2>Connectivity mix</h2>
       <p class="hint" id="mixHint">Actively reporting devices by radio type (last 7 days).</p>
-      <canvas id="mix" height="170"></canvas>
+      <canvas id="mix" height="150"></canvas>
+      <div id="activityRate" class="actrate"></div>
     </div>
 
     <div class="panel col-8">
@@ -283,6 +292,17 @@ async function load(){
   document.getElementById('mixHint').innerHTML =
     `Active this week: <b>WiFi ${fmtInt(rW.active_7d)}</b> · GSM ${fmtInt(rG.active_7d)} · `+
     `registered: WiFi ${fmtInt(rW.registered)} / GSM ${fmtInt(rG.registered)}.`;
+
+  // ---- activity rate by radio type (active ÷ registered) ----
+  const arate = r => r && r.registered ? Math.round(100*(r.active_7d||0)/r.registered) : 0;
+  document.getElementById('activityRate').innerHTML =
+    `<div class="cap">Activity rate (active ÷ registered)</div>`+
+    [['WiFi',rW,C.blue],['GSM',rG,C.accent]].map(([lbl,r,col])=>{
+      const p=arate(r);
+      return `<div class="row"><span class="lbl">${lbl}</span>`+
+        `<span class="track"><span class="fill" style="width:${p}%;background:${col}"></span></span>`+
+        `<span class="pv"><b>${p}%</b> ${fmtInt(r.active_7d)}/${fmtInt(r.registered)}</span></div>`;
+    }).join('');
 
   // ---- device onboarding per week ----
   new Chart(document.getElementById('growth'),{type:'bar',
