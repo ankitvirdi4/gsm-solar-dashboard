@@ -213,6 +213,54 @@ def main():
         return [{"name": names.get(r["_id"], str(r["_id"])[-6:]), "gen": round(r["gen"], 1)} for r in rows]
     top_plants = section("top plants (30d)", _top_plants, []) or []
 
+    # ---- per radio-type view (GSM dongles first) + reporting consistency -
+    # "Active in last 7d" = reported >=1 day, which over-counts devices that
+    # pinged only once. Here we also split active devices by how MANY of the
+    # last 7 days they reported (daily / intermittent / once), per radio type.
+    def _by_type():
+        def gw_ids(dt):
+            return [g["_id"] for g in db.gateways.find(
+                {"deviceType": dt, "assignedSlavesCount": {"$gt": 0}}, {"_id": 1})]
+        gsm_ids, wifi_ids = gw_ids("gsm"), gw_ids("wifi")
+        valid_gen = {"$cond": [{"$and": [{"$gte": ["$generation", 0]}, {"$lte": ["$generation", GEN_MAX]}]},
+                     "$generation", 0]}
+
+        def bundle(ids, ngw):
+            m = ({"gatewayId": {"$in": ids}} if ids is not None else {})
+            active = list(db.dailygenerations.aggregate([
+                {"$match": {"date": {"$gte": cut7}, **m}},
+                {"$group": {"_id": "$slaveDeviceId"}}, {"$count": "n"}],
+                allowDiskUse=True, maxTimeMS=120000))
+            cons = list(db.dailygenerations.aggregate([
+                {"$match": {"date": {"$gte": cut7, "$lt": today0}, **m}},
+                {"$group": {"_id": "$slaveDeviceId", "days": {"$addToSet": {"$dateToString": {
+                    "format": "%Y-%m-%d", "date": "$date", "timezone": "+05:30"}}}}},
+                {"$group": {"_id": None,
+                            "daily": {"$sum": {"$cond": [{"$gte": [{"$size": "$days"}, 6]}, 1, 0]}},
+                            "intermittent": {"$sum": {"$cond": [{"$and": [
+                                {"$gte": [{"$size": "$days"}, 2]}, {"$lte": [{"$size": "$days"}, 5]}]}, 1, 0]}},
+                            "once": {"$sum": {"$cond": [{"$eq": [{"$size": "$days"}, 1]}, 1, 0]}}}}],
+                allowDiskUse=True, maxTimeMS=120000))
+            trend = list(db.dailygenerations.aggregate([
+                {"$match": {"date": {"$gte": cut90}, **m}},
+                {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$date", "timezone": "+05:30"}},
+                            "gen": {"$sum": valid_gen}, "devices": {"$sum": 1}}},
+                {"$project": {"gen": {"$round": ["$gen", 1]}, "devices": 1}},
+                {"$sort": {"_id": 1}}], allowDiskUse=True, maxTimeMS=120000))
+            c = cons[0] if cons else {}
+            return {"gateways": ngw,
+                    "active_7d": active[0]["n"] if active else 0,
+                    "consistency": {"daily": c.get("daily", 0),
+                                    "intermittent": c.get("intermittent", 0),
+                                    "once": c.get("once", 0)},
+                    "daily": [{"date": r["_id"], "gen": r["gen"], "devices": r["devices"]} for r in trend]}
+
+        return {"default": "gsm",
+                "gsm": bundle(gsm_ids, len(gsm_ids)),
+                "wifi": bundle(wifi_ids, len(wifi_ids)),
+                "all": bundle(None, len(gsm_ids) + len(wifi_ids))}
+    by_type = section("per-radio-type view", _by_type, {}) or {}
+
     # ---- data quality: corrupt generation records + worst offenders ------
     def _dq():
         over = db.dailygenerations.count_documents({"generation": {"$gt": GEN_MAX}}, maxTimeMS=60000)
@@ -301,6 +349,7 @@ def main():
         "daily": daily,
         "top_plants": top_plants,
         "data_quality": dq,
+        "by_type": by_type,
         "offline": offline,
         "device_mix": mix,
         "pipeline": pipeline,

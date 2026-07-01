@@ -21,9 +21,14 @@ of JSON. The page loads instantly and can be hosted on any static host.
 - **KPIs:** devices reported yesterday, data-loggers online today (live),
   open alarms, offline devices (silent >7d), forwarding-queue depth, energy
   yesterday, month-to-date, active plants.
-- **Generation & active-device trend** (90 days).
-- **Fleet reporting donut** (reporting in last 7 days vs. silent).
-- **Connectivity mix** — gateways by radio type (WiFi vs cellular/GSM).
+- **GSM / WiFi / All toggle** (top-right, defaults to **GSM**) — filters the
+  generation trend and reporting-consistency panels to that gateway radio type.
+- **Generation & active-device trend** (90 days), per selected radio type.
+- **Reporting consistency (7d)** — of the devices "active" this week, how many
+  reported daily (6–7 days) vs. intermittently vs. *only once*. (Replaces the
+  old binary "reporting vs silent" donut, which counted a single ping as active.)
+- **Connectivity mix** — *active* gateways (last 7d) by radio type; counts
+  reporting gateways, not the ~91K never-deployed registered MACs.
 - **New devices onboarded / week** (8 weeks).
 - **Top plants** by 30-day generation.
 - **Alarms per day** (30 days) + **top alarm types** (7 days).

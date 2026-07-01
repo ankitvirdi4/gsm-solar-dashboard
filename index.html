@@ -22,6 +22,12 @@
   header h1 .sun{color:var(--accent)}
   .updated{color:var(--muted);font-size:13px}
   .updated b{color:var(--green)}
+  .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--card);color:var(--muted);border:0;padding:6px 15px;font-size:13px;cursor:pointer}
+  .seg button:not(:last-child){border-right:1px solid var(--line)}
+  .seg button.on{background:var(--accent);color:#1a1206;font-weight:650}
+  .tag{font-size:12px;font-weight:600;color:var(--accent);border:1px solid var(--line);
+       border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:middle}
   main{padding:22px 26px;max-width:1400px;margin:0 auto}
   .grid{display:grid;gap:16px}
   .kpis{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:8px}
@@ -64,6 +70,9 @@
 <header>
   <h1><span class="sun">☀</span> GSM Solar — Fleet Dashboard</h1>
   <span class="updated" id="updated">loading…</span>
+  <span class="seg" id="typeToggle" title="Filter the fleet view by gateway radio type">
+    <button data-t="gsm">GSM</button><button data-t="wifi">WiFi</button><button data-t="all">All</button>
+  </span>
 </header>
 
 <main>
@@ -71,14 +80,14 @@
 
   <div class="grid panels">
     <div class="panel col-8">
-      <h2>Generation &amp; active devices</h2>
-      <p class="hint">Daily energy (kWh) and number of inverter devices reporting — last 90 days. Today excluded (day in progress).</p>
+      <h2>Generation &amp; active devices <span class="tag" id="trendType">GSM</span></h2>
+      <p class="hint" id="trendHint">Daily energy (kWh) and inverter devices reporting — last 90 days.</p>
       <canvas id="trend" height="120"></canvas>
     </div>
 
     <div class="panel col-4">
-      <h2>Fleet reporting (7 days)</h2>
-      <p class="hint">Devices that sent data in the last week vs. registered.</p>
+      <h2>Reporting consistency (7d) <span class="tag" id="consType">GSM</span></h2>
+      <p class="hint" id="consHint">How many of the last 7 days each active device actually reported.</p>
       <canvas id="donut" height="170"></canvas>
     </div>
 
@@ -138,7 +147,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
-const C = {txt:'#e6edf3',muted:'#8b949e',accent:'#f5a623',green:'#3fb950',blue:'#58a6ff',red:'#f85149',grid:'#262d38'};
+const C = {txt:'#e6edf3',muted:'#8b949e',accent:'#f5a623',green:'#3fb950',blue:'#58a6ff',red:'#f85149',amber:'#d29922',grid:'#262d38'};
 Chart.defaults.color = C.muted;
 Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif";
 Chart.defaults.borderColor = C.grid;
@@ -185,37 +194,57 @@ async function load(){
   ];
   document.getElementById('kpis').innerHTML = cards.join('');
 
-  // ---- trend (exclude today/partial last point) ----
+  // ---- type-aware trend + reporting-consistency (GSM / WiFi / All toggle) ----
+  const bt = d.by_type||{}, TL={gsm:'GSM',wifi:'WiFi',all:'All'};
   const today = (d.generated_at_ist||'').slice(0,10);
-  const trend = (d.daily||[]).filter(x=>x.date!==today);
-  new Chart(document.getElementById('trend'), {
-    data:{ labels:trend.map(x=>x.date),
-      datasets:[
-        {type:'line',label:'Generation (kWh)',yAxisID:'y',data:trend.map(x=>x.gen),
-          borderColor:C.accent,backgroundColor:'rgba(245,166,35,.12)',fill:true,
-          tension:.3,pointRadius:0,borderWidth:2},
-        {type:'line',label:'Devices reporting',yAxisID:'y1',data:trend.map(x=>x.devices),
-          borderColor:C.blue,tension:.3,pointRadius:0,borderWidth:1.5}
-      ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{boxWidth:12}}},
-      scales:{
-        x:{ticks:{maxTicksLimit:10,maxRotation:0},grid:{display:false}},
-        y:{position:'left',title:{display:true,text:'kWh'},grid:{color:C.grid}},
-        y1:{position:'right',title:{display:true,text:'devices'},grid:{display:false},
-            suggestedMin:0}
-      }}
-  });
+  let trendChart=null, consChart=null;
 
-  // ---- donut: reporting vs silent (7d) ----
-  const online = c.active_7d||0, total = reg.slaves||online, silent = Math.max(total-online,0);
-  new Chart(document.getElementById('donut'),{
-    type:'doughnut',
-    data:{labels:['Reporting (7d)','Silent / offline'],
-      datasets:[{data:[online,silent],backgroundColor:[C.green,'#30363d'],borderWidth:0}]},
-    options:{cutout:'68%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
-      tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)} (${pct(ctx.raw,total)})`}}}}
-  });
+  function renderType(tp){
+    const b = bt[tp] || {daily:[], consistency:{}, active_7d:0, gateways:0};
+    const cons = b.consistency||{};
+    document.querySelectorAll('#typeToggle button').forEach(x=>x.classList.toggle('on',x.dataset.t===tp));
+    document.getElementById('trendType').textContent = TL[tp];
+    document.getElementById('consType').textContent = TL[tp];
+
+    // trend (exclude in-progress day)
+    const tr = (b.daily||[]).filter(x=>x.date!==today);
+    if(trendChart) trendChart.destroy();
+    trendChart = new Chart(document.getElementById('trend'), {
+      data:{ labels:tr.map(x=>x.date),
+        datasets:[
+          {type:'line',label:'Generation (kWh)',yAxisID:'y',data:tr.map(x=>x.gen),
+            borderColor:C.accent,backgroundColor:'rgba(245,166,35,.12)',fill:true,
+            tension:.3,pointRadius:0,borderWidth:2},
+          {type:'line',label:'Devices reporting',yAxisID:'y1',data:tr.map(x=>x.devices),
+            borderColor:C.blue,tension:.3,pointRadius:0,borderWidth:1.5}
+        ]},
+      options:{responsive:true,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{boxWidth:12}}},
+        scales:{
+          x:{ticks:{maxTicksLimit:10,maxRotation:0},grid:{display:false}},
+          y:{position:'left',title:{display:true,text:'kWh'},grid:{color:C.grid}},
+          y1:{position:'right',title:{display:true,text:'devices'},grid:{display:false},suggestedMin:0}
+        }}
+    });
+    document.getElementById('trendHint').textContent =
+      `${TL[tp]} fleet — daily energy (kWh) and inverter devices reporting, last 90 days. Today excluded (in progress).`;
+
+    // reporting-consistency donut (of devices active in the last 7 days)
+    const daily=cons.daily||0, inter=cons.intermittent||0, once=cons.once||0;
+    if(consChart) consChart.destroy();
+    consChart = new Chart(document.getElementById('donut'),{
+      type:'doughnut',
+      data:{labels:['Daily (6–7 days)','Intermittent (2–5)','Reported once'],
+        datasets:[{data:[daily,inter,once],backgroundColor:[C.green,C.amber,C.red],borderWidth:0}]},
+      options:{cutout:'66%',plugins:{legend:{position:'bottom',labels:{boxWidth:12}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fmtInt(ctx.raw)} (${pct(ctx.raw,b.active_7d)})`}}}}
+    });
+    document.getElementById('consHint').innerHTML =
+      `${fmtInt(b.active_7d)} ${TL[tp]} devices reported this week · <b>${fmtInt(once)} only once</b> · ${fmtInt(b.gateways)} deployed gateways.`;
+  }
+  document.querySelectorAll('#typeToggle button').forEach(btn=>
+    btn.addEventListener('click',()=>renderType(btn.dataset.t)));
+  renderType(bt.default||'gsm');
 
   // ---- top plants table (with inline bars) ----
   const tp=d.top_plants||[]; const maxG=Math.max(1,...tp.map(p=>p.gen));
