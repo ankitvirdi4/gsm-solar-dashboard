@@ -316,7 +316,7 @@ async function load(){
       ? `${fmtInt(dq.excluded_bad_generation)} corrupt generation records excluded · ` : '')+
     `snapshot pre-aggregated by build.py (no live DB load).`;
 
-  loadMap(today,total);
+  loadMap();
 }
 
 function prevDay(d){
