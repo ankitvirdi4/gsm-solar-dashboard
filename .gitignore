@@ -3,6 +3,10 @@
 *.env
 !.*.example
 
+# Exports may contain customer PII — never commit
+*.csv
+tools/backups/
+
 # Logs / caches
 build.log
 __pycache__/
