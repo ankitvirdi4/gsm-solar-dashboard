@@ -144,8 +144,8 @@ async function load(){
     `<span class="tag">Not available</span><p>${b.note ? b.note.replace('deviceEvents','<b>deviceEvents</b>') : 'Boot-up messages are not captured in the database.'}</p>`;
 
   document.getElementById('footer').innerHTML =
-    `GSM/modem devices only. “Active today” uses generation + dashboard signals; the offline set was re-checked against raw telemetry (deviceHexDatas/deviceDatas). `+
-    `Note: this reads the read-only Atlas Online Archive — exact last-working-days for devices that worked then stopped need the primary cluster; the offline devices shown here have no telemetry on record at all. Boot-up messages are not captured in the DB.`;
+    `GSM/modem devices only. “Active today” = generation or device-state updated today; “last working day” = the device’s last-seen date (dashboardDatas.updatedAt or last generation). `+
+    `Devices with no signal at all were re-checked against raw telemetry and, if nothing is on record, marked “never reported”. Last-seen is the best available proxy on the read-only archive — precise report timestamps need a real lastSeenAt field on the primary cluster. Boot-up messages are not captured in the DB.`;
 }
 
 function badge(r){

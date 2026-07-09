@@ -44,24 +44,27 @@ def main():
     gsm_slaves = [s for s in db.slaves.find({}, SLFIELDS) if s.get("gatewayId") in gsm_gw]
     print(f"  GSM deployed devices: {len(gsm_slaves)}", flush=True)
 
-    print("fast signals: dailygenerations + dashboardDatas ...", flush=True)
+    # LAST-SEEN signals. NOTE: dashboardDatas.previousDate is blanket-reset to
+    # today for every device, so it's useless as a last-seen — use updatedAt,
+    # which retains the real last-touch date, combined with dailygenerations.
+    print("last-seen signals: dailygenerations + dashboardDatas.updatedAt ...", flush=True)
     dg = {r["_id"]: norm(r["last"]) for r in db.dailygenerations.aggregate(
         [{"$group":{"_id":"$slaveDeviceId","last":{"$max":"$date"}}}], allowDiskUse=True, maxTimeMS=150000)}
     dash = {}
-    for d in db.dashboardDatas.find({}, {"slaveDeviceId":1,"previousDate":1,"updatedAt":1}):
-        sid=d.get("slaveDeviceId"); cand=[norm(x) for x in (d.get("previousDate"),d.get("updatedAt")) if x]
-        if sid and cand: dash[sid]=max(cand)
+    for d in db.dashboardDatas.find({}, {"slaveDeviceId":1,"updatedAt":1}):
+        sid=d.get("slaveDeviceId"); u=norm(d.get("updatedAt"))
+        if sid and u: dash[sid]=u
 
     last = {}   # sid -> last-seen datetime (naive UTC)
     residual = []
     for s in gsm_slaves:
         sid = s["_id"]
         f = max([x for x in (dg.get(sid), dash.get(sid)) if x], default=None)
-        if f is not None and f >= today0:
-            last[sid] = f
+        if f is not None:
+            last[sid] = f          # real last-seen date (today OR an earlier day = offline)
         else:
-            residual.append(sid)   # no fast "today" signal -> verify against raw telemetry
-    print(f"  {len(gsm_slaves)-len(residual)} active via fast signals; hex-checking {len(residual)} residual ...", flush=True)
+            residual.append(sid)   # NO signal at all -> raw-telemetry check (hex-only or never)
+    print(f"  {len(gsm_slaves)-len(residual)} have a last-seen date; hex-checking {len(residual)} with no signal ...", flush=True)
 
     def one(coll, sid):
         for attempt in range(2):   # retry once: distinguish a real absence from a flaky timeout
