@@ -43,12 +43,13 @@ jobs:
             echo "::error::MONGODB_URI secret is not set"; exit 1
           fi
           python build.py
+          python build_gsm.py   # GSM-only operations page (slow: per-device telemetry checks)
 
       - name: Assemble static site (only what should be published)
         run: |
           mkdir -p dist/data
-          cp index.html dist/
-          cp data/data.json data/geo.json dist/data/
+          cp index.html gsm.html dist/
+          cp data/data.json data/geo.json data/gsm.json dist/data/
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

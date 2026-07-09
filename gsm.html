@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>GSM Modem Fleet — Operations</title>
+<style>
+  :root{
+    --bg:#0d1117; --card:#161b22; --card2:#1c2330; --line:#262d38;
+    --txt:#e6edf3; --muted:#8b949e; --faint:#6b7280; --accent:#f5a623;
+    --green:#3fb950; --red:#f85149; --amber:#d29922; --blue:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:20px 26px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0;font-weight:650}
+  header h1 .ico{color:var(--accent)}
+  .badge{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);
+    border:1px solid #4a3a1a;background:#241d10;border-radius:6px;padding:3px 9px}
+  .navlink{font-size:13px;color:var(--blue);text-decoration:none;border:1px solid var(--line);
+    border-radius:7px;padding:5px 11px}
+  .navlink:hover{background:var(--card2)}
+  .updated{color:var(--muted);font-size:13px;margin-left:auto}
+  .updated b{color:var(--green)}
+  main{padding:22px 26px;max-width:1240px;margin:0 auto}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:18px}
+  .kpi{background:linear-gradient(160deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .kpi .label{color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.5px}
+  .kpi .val{font-size:34px;font-weight:750;margin-top:8px;line-height:1;font-variant-numeric:tabular-nums}
+  .kpi .sub{color:var(--muted);font-size:13px;margin-top:7px}
+  .kpi.ok .val{color:var(--green)} .kpi.off .val{color:var(--red)} .kpi.dep .val{color:var(--txt)}
+  .kpi .bar{height:6px;border-radius:4px;background:#30363d;margin-top:12px;overflow:hidden}
+  .kpi .bar>i{display:block;height:100%;background:var(--green)}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:18px}
+  .panel h2{font-size:15px;margin:0 0 3px;font-weight:650}
+  .panel .hint{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input.search{background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--txt);
+    padding:8px 12px;font-size:13.5px;min-width:240px;flex:1}
+  input.search::placeholder{color:var(--faint)}
+  button.dl{background:var(--accent);color:#1a1206;border:0;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:650;cursor:pointer}
+  .tcount{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+
+  .twrap{overflow:auto;max-height:620px;border:1px solid var(--line);border-radius:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{position:sticky;top:0;background:#12161d;color:var(--muted);text-align:left;font-weight:600;
+    font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding:9px 12px;border-bottom:1px solid var(--line);
+    cursor:pointer;white-space:nowrap;user-select:none}
+  thead th .ar{color:var(--accent);font-size:10px}
+  tbody td{padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody tr:hover{background:#12161d}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:12px}
+  .pill{display:inline-block;font-size:11px;font-weight:650;padding:2px 8px;border-radius:20px}
+  .pill.recent{color:var(--amber);background:#2a2410} .pill.old{color:var(--red);background:#2a1414}
+  .pill.never{color:var(--faint);background:#1c2330}
+  .dim{color:var(--muted)}
+
+  .na{display:flex;gap:16px;align-items:flex-start;background:var(--card2);border:1px dashed #3a4150;border-radius:10px;padding:16px 18px}
+  .na .tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+    border:1px solid var(--line);border-radius:6px;padding:3px 9px;white-space:nowrap;margin-top:2px}
+  .na p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.55}
+  .na b{color:var(--txt)}
+  footer{color:var(--muted);font-size:12px;padding:16px 26px;border-top:1px solid var(--line);margin-top:24px}
+  .err{color:var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="ico">▚</span> GSM Modem Fleet — Operations</h1>
+  <span class="badge">Modem / cellular only · WiFi excluded</span>
+  <a href="index.html" class="navlink">← Full fleet dashboard</a>
+  <span class="updated" id="updated">loading…</span>
+</header>
+
+<main>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="panel">
+    <h2>Offline devices <span class="dim" id="offttl"></span></h2>
+    <p class="hint">GSM devices not reporting today, with the last day we could find data for them. Sorted by most recently offline; devices with no data on record (likely never commissioned) are marked <b>never reported</b> and sorted last.</p>
+    <div class="toolbar">
+      <input class="search" id="search" placeholder="Filter by serial, name, plant, IMEI, owner…" />
+      <span class="tcount" id="tcount"></span>
+      <button class="dl" id="dl">Download CSV</button>
+    </div>
+    <div class="twrap">
+      <table id="tbl">
+        <thead><tr>
+          <th data-k="nickname">Device <span class="ar"></span></th>
+          <th data-k="serial_no">Serial <span class="ar"></span></th>
+          <th data-k="plant_name">Plant <span class="ar"></span></th>
+          <th data-k="gateway_imei">Gateway IMEI <span class="ar"></span></th>
+          <th data-k="last_working_day">Last working day <span class="ar"></span></th>
+          <th data-k="days_offline">Days offline <span class="ar">▲</span></th>
+          <th data-k="owner_name">Owner <span class="ar"></span></th>
+        </tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Repeated boot-ups (&gt;1/day)</h2>
+    <p class="hint">Devices restarting multiple times a day, with boot-up times.</p>
+    <div class="na" id="bootup"></div>
+  </div>
+</main>
+
+<footer id="footer"></footer>
+
+<script>
+const fmtInt = n => (n==null?'—':n.toLocaleString('en-IN'));
+let DATA=null, rows=[], sortK='days_offline', sortAsc=true;
+
+function kpi(label,val,sub,cls,barPct){
+  return `<div class="kpi ${cls||''}"><div class="label">${label}</div>
+    <div class="val">${val}</div><div class="sub">${sub||''}</div>
+    ${barPct!=null?`<div class="bar"><i style="width:${barPct}%"></i></div>`:''}</div>`;
+}
+
+async function load(){
+  try{ DATA = await (await fetch('data/gsm.json?_='+Date.now())).json(); }
+  catch(e){ document.getElementById('updated').innerHTML='<span class="err">data/gsm.json not found — run build_gsm.py</span>'; return; }
+  const d=DATA;
+  document.getElementById('updated').innerHTML = `updated <b>${d.generated_at_ist}</b> · refreshes hourly`;
+
+  const pctActive = d.deployed ? Math.round(100*d.active_today/d.deployed) : 0;
+  document.getElementById('kpis').innerHTML =
+    kpi('Devices deployed', fmtInt(d.deployed), 'registered on GSM gateways', 'dep') +
+    kpi('Active today', fmtInt(d.active_today), `${pctActive}% of deployed · ${d.today_ist}`, 'ok', pctActive) +
+    kpi('Offline today', fmtInt(d.offline_count), `${100-pctActive}% not reporting`, 'off');
+
+  rows = d.offline.slice();
+  document.getElementById('offttl').textContent = `· ${fmtInt(rows.length)} devices`;
+  render();
+
+  // boot-up: not available
+  const b=d.bootups||{};
+  document.getElementById('bootup').innerHTML =
+    `<span class="tag">Not available</span><p>${b.note ? b.note.replace('deviceEvents','<b>deviceEvents</b>') : 'Boot-up messages are not captured in the database.'}</p>`;
+
+  document.getElementById('footer').innerHTML =
+    `GSM/modem devices only. “Active today” uses generation + dashboard signals; the offline set was re-checked against raw telemetry (deviceHexDatas/deviceDatas). `+
+    `Note: this reads the read-only Atlas Online Archive — exact last-working-days for devices that worked then stopped need the primary cluster; the offline devices shown here have no telemetry on record at all. Boot-up messages are not captured in the DB.`;
+}
+
+function badge(r){
+  if(r.days_offline==null) return '<span class="pill never">never reported</span>';
+  if(r.days_offline<=3) return `<span class="pill recent">${r.days_offline}d</span>`;
+  return `<span class="pill old">${fmtInt(r.days_offline)}d</span>`;
+}
+function esc(s){return (s||'').replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));}
+
+function render(){
+  const q=(document.getElementById('search').value||'').toLowerCase().trim();
+  let r=rows;
+  if(q) r=r.filter(x=>[x.nickname,x.serial_no,x.plant_name,x.gateway_imei,x.owner_name,x.plant_address]
+                        .some(v=>(v||'').toLowerCase().includes(q)));
+  r=r.slice().sort((a,b)=>{
+    let x=a[sortK], y=b[sortK];
+    if(sortK==='days_offline'){ x=x==null?1e9:x; y=y==null?1e9:y; return sortAsc?x-y:y-x; }
+    x=(x||'').toString().toLowerCase(); y=(y||'').toString().toLowerCase();
+    return sortAsc ? (x<y?-1:x>y?1:0) : (x>y?-1:x<y?1:0);
+  });
+  document.getElementById('tcount').textContent = `${fmtInt(r.length)} shown`;
+  document.getElementById('tb').innerHTML = r.map(x=>`<tr>
+    <td>${esc(x.nickname)||'<span class=dim>—</span>'}</td>
+    <td class="mono">${esc(x.serial_no)}</td>
+    <td>${esc(x.plant_name)||'<span class=dim>—</span>'}</td>
+    <td class="mono">${esc(x.gateway_imei)}</td>
+    <td>${x.last_working_day||'<span class=dim>never</span>'}</td>
+    <td class="num">${badge(x)}</td>
+    <td>${esc(x.owner_name)}${x.owner_phone?` <span class="dim mono">${esc(x.owner_phone)}</span>`:''}</td>
+  </tr>`).join('') || `<tr><td colspan="7" class="dim" style="padding:18px">No devices match.</td></tr>`;
+  document.querySelectorAll('thead th').forEach(th=>{
+    const a=th.querySelector('.ar'); a.textContent = th.dataset.k===sortK ? (sortAsc?'▲':'▼') : '';
+  });
+}
+
+document.getElementById('search').addEventListener('input', render);
+document.querySelectorAll('thead th').forEach(th=>th.addEventListener('click',()=>{
+  const k=th.dataset.k; if(k===sortK) sortAsc=!sortAsc; else {sortK=k; sortAsc = k!=='days_offline';}
+  render();
+}));
+document.getElementById('dl').addEventListener('click',()=>{
+  const cols=['serial_no','nickname','plant_name','plant_address','gateway_imei','owner_name','owner_phone','last_working_day','days_offline','last_seen_ist'];
+  const q=(document.getElementById('search').value||'').toLowerCase().trim();
+  let r=rows; if(q) r=r.filter(x=>[x.nickname,x.serial_no,x.plant_name,x.gateway_imei,x.owner_name].some(v=>(v||'').toLowerCase().includes(q)));
+  const csv=[cols.join(',')].concat(r.map(x=>cols.map(c=>`"${(x[c]==null?'':(''+x[c])).replace(/"/g,'""')}"`).join(','))).join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='gsm_offline_devices.csv'; a.click();
+});
+load();
+</script>
+</body>
+</html>
