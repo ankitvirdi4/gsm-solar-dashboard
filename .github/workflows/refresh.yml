@@ -1,30 +1,33 @@
 name: Refresh & deploy dashboard
 
 # Hourly: rebuild the data snapshot from the Atlas Online Archive and deploy the
-# static dashboard to Cloudflare Pages. Access is gated by Cloudflare Access
-# (team-only login) — configured once in the Cloudflare dashboard, see README.
+# static dashboard to GitHub Pages. The published Pages site is public — anyone
+# with the URL can view it. The repo (code + secrets) stays private.
 #
-# Required repo secrets (Settings → Secrets and variables → Actions):
-#   MONGODB_URI            — the Atlas connection string (DB credential)
-#   CLOUDFLARE_API_TOKEN   — token with "Cloudflare Pages: Edit" permission
-#   CLOUDFLARE_ACCOUNT_ID  — your Cloudflare account ID
+# Required repo secret (Settings → Secrets and variables → Actions):
+#   MONGODB_URI   — the Atlas connection string (DB credential)
+#
+# One-time setup: Settings → Pages → Build and deployment → Source = GitHub Actions.
 
 on:
   schedule:
-    - cron: '0 * * * *'      # top of every hour (UTC)
+    - cron: '17 * * * *'     # 17 min past every hour (UTC) — avoids the congested top-of-hour slot
   workflow_dispatch: {}        # manual "Run workflow" button
   push:
     branches: [main]
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
+# Allow one concurrent deploy; don't cancel an in-progress Pages deployment.
 concurrency:
-  group: deploy
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,9 +54,18 @@ jobs:
           cp index.html gsm.html dist/
           cp data/data.json data/geo.json data/gsm.json dist/data/
 
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=gsm-solar-dashboard --branch=main
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
