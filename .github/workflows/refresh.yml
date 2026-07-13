@@ -1,12 +1,13 @@
-name: Refresh dashboard data
+name: Refresh & deploy dashboard
 
-# Hourly: rebuild the data snapshot from the Atlas Online Archive and commit the
-# fresh data/*.json back to main. The push triggers the Cloudflare Workers Git
-# integration to auto-redeploy the dashboard at
-# https://gsm-solar-dashboard.avirdi.workers.dev  with current data.
+# Hourly: rebuild the data snapshot from the Atlas Online Archive and deploy the
+# static dashboard to GitHub Pages. The published Pages site is public — anyone
+# with the URL can view it. The repo (code + secrets) stays as-is.
 #
 # Required repo secret (Settings → Secrets and variables → Actions):
 #   MONGODB_URI   — the Atlas connection string (DB credential)
+#
+# Pages source: Settings → Pages → Build and deployment → Source = GitHub Actions.
 
 on:
   schedule:
@@ -14,19 +15,19 @@ on:
   workflow_dispatch: {}        # manual "Run workflow" button
   push:
     branches: [main]
-    paths-ignore:
-      - 'data/**'              # don't loop on our own data commits
 
 permissions:
-  contents: write             # needed to commit the refreshed data back
+  contents: read
+  pages: write
+  id-token: write
 
-# One refresh at a time; never cancel an in-progress commit/deploy.
+# Allow one concurrent deploy; don't cancel an in-progress Pages deployment.
 concurrency:
-  group: refresh
+  group: pages
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,27 +48,24 @@ jobs:
           python build.py
           python build_gsm.py   # GSM-only operations page (slow: per-device telemetry checks)
 
-      - name: Commit refreshed data (triggers Cloudflare redeploy)
+      - name: Assemble static site (only what should be published)
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/data.json data/gsm.json data/geo.json
-          if git diff --cached --quiet; then
-            echo "No data changes this run — nothing to commit."
-            exit 0
-          fi
-          # NOTE: no "[skip ci]" — Cloudflare's Git integration skips deploys on that tag.
-          # Loop-safety is already handled by paths-ignore:data/** + GITHUB_TOKEN not
-          # re-triggering workflows.
-          git commit -m "Hourly data refresh"
-          # Resilient push: another run (or the cron) may have advanced main; rebase our
-          # fresh data on top (ours wins any data conflict) and retry a few times.
-          for attempt in 1 2 3 4 5; do
-            if git pull --rebase -X ours origin main && git push; then
-              echo "Pushed fresh data → Cloudflare will redeploy the Worker."
-              exit 0
-            fi
-            echo "push attempt $attempt failed (remote moved); retrying..."
-            sleep 5
-          done
-          echo "::error::could not push refreshed data after retries"; exit 1
+          mkdir -p dist/data
+          cp index.html gsm.html dist/
+          cp data/data.json data/geo.json data/gsm.json dist/data/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
