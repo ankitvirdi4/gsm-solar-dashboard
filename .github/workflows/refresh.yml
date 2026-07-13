@@ -1,13 +1,12 @@
-name: Refresh & deploy dashboard
+name: Refresh dashboard data
 
-# Hourly: rebuild the data snapshot from the Atlas Online Archive and deploy the
-# static dashboard to GitHub Pages. The published Pages site is public — anyone
-# with the URL can view it. The repo (code + secrets) stays private.
+# Hourly: rebuild the data snapshot from the Atlas Online Archive and commit the
+# fresh data/*.json back to main. The push triggers the Cloudflare Workers Git
+# integration to auto-redeploy the dashboard at
+# https://gsm-solar-dashboard.avirdi.workers.dev  with current data.
 #
 # Required repo secret (Settings → Secrets and variables → Actions):
 #   MONGODB_URI   — the Atlas connection string (DB credential)
-#
-# One-time setup: Settings → Pages → Build and deployment → Source = GitHub Actions.
 
 on:
   schedule:
@@ -15,19 +14,19 @@ on:
   workflow_dispatch: {}        # manual "Run workflow" button
   push:
     branches: [main]
+    paths-ignore:
+      - 'data/**'              # don't loop on our own data commits
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write             # needed to commit the refreshed data back
 
-# Allow one concurrent deploy; don't cancel an in-progress Pages deployment.
+# One refresh at a time; never cancel an in-progress commit/deploy.
 concurrency:
-  group: pages
+  group: refresh
   cancel-in-progress: false
 
 jobs:
-  build:
+  refresh:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,24 +47,15 @@ jobs:
           python build.py
           python build_gsm.py   # GSM-only operations page (slow: per-device telemetry checks)
 
-      - name: Assemble static site (only what should be published)
+      - name: Commit refreshed data (triggers Cloudflare redeploy)
         run: |
-          mkdir -p dist/data
-          cp index.html gsm.html dist/
-          cp data/data.json data/geo.json data/gsm.json dist/data/
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/data.json data/gsm.json data/geo.json
+          if git diff --cached --quiet; then
+            echo "No data changes this run — nothing to commit."
+          else
+            git commit -m "Hourly data refresh [skip ci]"
+            git push
+            echo "Pushed fresh data → Cloudflare will redeploy the Worker."
+          fi
